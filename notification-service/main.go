@@ -1,134 +1,59 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"log"
 	"net/http"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/IBM/sarama"
+	"github.com/prachi/kafka-ecommerce/notification-service/config"
+	"github.com/prachi/kafka-ecommerce/notification-service/consumer"
 )
 
-type OrderEvent struct {
-	OrderID    string      `json:"order_id"`
-	CustomerID string      `json:"customer_id"`
-	Items      []OrderItem `json:"items"`
-	Total      float64     `json:"total"`
-}
-
-type OrderItem struct {
-	ProductID string  `json:"product_id"`
-	Quantity  int     `json:"quantity"`
-	Price     float64 `json:"price"`
-}
-
-var processedOrders = make(map[string]bool)
-
-// KPIEvent struct for KPI publishing
-// (You can add a real publisher if you want to emit KPIs)
-type KPIEvent struct {
-	KPIName  string `json:"kpi_name"`
-	Metric   string `json:"metric"`
-	Value    int    `json:"value"`
-	Time     int64  `json:"timestamp"`
-}
-
-func publishKPI(kpi KPIEvent) {
-	// TODO: Implement KPI publishing to KPIs topic if needed
-	log.Printf("KPI: %+v", kpi)
-}
-
 func main() {
-	go startConsumer()
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-	log.Fatal(http.ListenAndServe(":8084", nil))
-}
+	log.Println("Starting Notification Service...")
 
-func startConsumer() {
-	config := sarama.NewConfig()
-	config.Consumer.Return.Errors = true
-	brokers := []string{"localhost:9092"}
-	client, err := sarama.NewConsumer(brokers, config)
+	// Load configuration
+	cfg, err := config.New()
 	if err != nil {
-		log.Fatalf("Failed to create consumer: %v", err)
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
-	defer client.Close()
 
-	partitionConsumer, err := client.ConsumePartition("Notification", 0, sarama.OffsetNewest)
-	if err != nil {
-		log.Fatalf("Failed to consume partition: %v", err)
-	}
-	defer partitionConsumer.Close()
+	// Create notification consumer
+	notificationConsumer := consumer.NewNotificationConsumer(cfg.KafkaBrokers)
 
-	for message := range partitionConsumer.Messages() {
-		var event OrderEvent
-		if err := json.Unmarshal(message.Value, &event); err != nil {
-			publishKPI(KPIEvent{
-				KPIName: "notification_error",
-				Metric:  "unmarshal_error",
-				Value:   1,
-				Time:    time.Now().Unix(),
-			})
-			log.Printf("Failed to unmarshal event: %v", err)
-			publishToDeadLetterQueue(message.Value)
-			continue
-		}
-
-		if processedOrders[event.OrderID] {
-			log.Printf("Duplicate notification: %s", event.OrderID)
-			continue
-		}
-		processedOrders[event.OrderID] = true
-
-		log.Printf("Notification received and processed: %+v", event)
-		publishKPI(KPIEvent{
-			KPIName: "notification_processed",
-			Metric:  "success",
-			Value:   1,
-			Time:    time.Now().Unix(),
+	// Start HTTP server for health check
+	go func() {
+		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
 		})
-		// Here you would process the notification (e.g., send email/SMS)
-	}
-}
+		log.Printf("HTTP server listening on :%s (/health)", cfg.HTTPPort)
+		if err := http.ListenAndServe(":"+cfg.HTTPPort, nil); err != nil {
+			log.Fatalf("HTTP server error: %v", err)
+		}
+	}()
 
-func publishToDeadLetterQueue(value []byte) {
-	errEvent := struct {
-		OriginalEvent json.RawMessage `json:"original_event"`
-		Error         string          `json:"error"`
-		Timestamp     time.Time       `json:"timestamp"`
-	}{
-		OriginalEvent: value,
-		Error:         "Failed to process notification",
-		Timestamp:     time.Now().UTC(),
+	// Start consumer in a goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		if err := notificationConsumer.Start(); err != nil {
+			errChan <- err
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shut down
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-errChan:
+		log.Fatalf("Consumer error: %v", err)
+	case sig := <-sigChan:
+		log.Printf("Received signal %v, shutting down...", sig)
 	}
 
-	errBytes, err := json.Marshal(errEvent)
-	if err != nil {
-		log.Printf("Failed to marshal error event: %v", err)
-		publishToTopic("DeadLetterQueue", value) // Fallback to original message if marshaling fails
-		return
-	}
-
-	publishToTopic("DeadLetterQueue", errBytes)
-}
-
-func publishToTopic(topic string, value []byte) {
-	config := sarama.NewConfig()
-	config.Producer.Return.Successes = true
-	producer, err := sarama.NewSyncProducer([]string{"localhost:9092"}, config)
-	if err != nil {
-		log.Printf("Producer error: %v", err)
-		return
-	}
-	defer producer.Close()
-	msg := &sarama.ProducerMessage{Topic: topic, Value: sarama.ByteEncoder(value)}
-	_, _, err = producer.SendMessage(msg)
-	if err != nil {
-		log.Printf("Failed to send message to %s: %v", topic, err)
-	} else {
-		log.Printf("Published event to %s", topic)
-	}
+	log.Println("Notification service stopped")
 }
