@@ -23,7 +23,6 @@ type OrderItem struct {
 	Price     float64 `json:"price"`
 }
 
-// KPIEvent struct for KPI publishing
 type KPIEvent struct {
 	KPIName  string `json:"kpi_name"`
 	Metric   string `json:"metric"`
@@ -31,14 +30,12 @@ type KPIEvent struct {
 	Time     int64  `json:"timestamp"`
 }
 
-// ShipperConsumer handles consuming shipping events
 type ShipperConsumer struct {
 	processedOrders map[string]bool
 	mutex           sync.Mutex
 	brokers         []string
 }
 
-// NewShipperConsumer creates a new shipper consumer
 func NewShipperConsumer(brokers []string) *ShipperConsumer {
 	return &ShipperConsumer{
 		processedOrders: make(map[string]bool),
@@ -46,14 +43,12 @@ func NewShipperConsumer(brokers []string) *ShipperConsumer {
 	}
 }
 
-// Start begins consuming from the OrderPickedAndPacked topic
 func (c *ShipperConsumer) Start() error {
 	log.Println("Starting shipper service consumer...")
 	
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	
-	// Set client ID for better logging
 	config.ClientID = "shipper-service"
 	
 	log.Printf("Connecting to Kafka brokers: %v", c.brokers)
@@ -65,7 +60,6 @@ func (c *ShipperConsumer) Start() error {
 	
 	log.Println("Successfully connected to Kafka")
 	
-	// Try to consume from the beginning of the topic to see all messages
 	log.Println("Attempting to consume from OrderPickedAndPacked topic, partition 0")
 	partitionConsumer, err := client.ConsumePartition("OrderPickedAndPacked", 0, sarama.OffsetOldest)
 	if err != nil {
@@ -75,10 +69,8 @@ func (c *ShipperConsumer) Start() error {
 	
 	log.Println("Successfully created partition consumer, waiting for messages...")
 
-	// Create a channel for errors
 	errors := make(chan error, 1)
 	
-	// Start a goroutine to handle errors
 	go func() {
 		for err := range partitionConsumer.Errors() {
 			log.Printf("Error from partition consumer: %v", err)
@@ -93,18 +85,15 @@ func (c *ShipperConsumer) Start() error {
 	return nil
 }
 
-// processMessage handles an individual Kafka message
 func (c *ShipperConsumer) processMessage(message *sarama.ConsumerMessage) {
 	log.Printf("Received message from topic %s, partition %d, offset %d", 
 		message.Topic, message.Partition, message.Offset)
 	log.Printf("Message value: %s", string(message.Value))
 	
-	// First try to unmarshal as our expected OrderEvent format
 	var event OrderEvent
 	if err := json.Unmarshal(message.Value, &event); err != nil {
 		log.Printf("Failed to unmarshal as OrderEvent: %v", err)
 		
-		// Try to unmarshal as a map to handle different formats
 		var rawEvent map[string]interface{}
 		if err := json.Unmarshal(message.Value, &rawEvent); err != nil {
 			log.Printf("Failed to unmarshal as map: %v", err)
@@ -119,7 +108,6 @@ func (c *ShipperConsumer) processMessage(message *sarama.ConsumerMessage) {
 			return
 		}
 		
-		// Extract order_id from the raw event
 		orderID, ok := rawEvent["order_id"].(string)
 		if !ok {
 			log.Printf("Message doesn't contain a valid order_id")
@@ -127,17 +115,14 @@ func (c *ShipperConsumer) processMessage(message *sarama.ConsumerMessage) {
 			return
 		}
 		
-		// Create a minimal event with just the order_id
 		event = OrderEvent{
 			OrderID: orderID,
 		}
 		
-		// Try to extract customer_id if present
 		if customerID, ok := rawEvent["customer_id"].(string); ok {
 			event.CustomerID = customerID
 		}
 		
-		// Try to extract total if present
 		if total, ok := rawEvent["total"].(float64); ok {
 			event.Total = total
 		}
@@ -147,7 +132,6 @@ func (c *ShipperConsumer) processMessage(message *sarama.ConsumerMessage) {
 
 	log.Printf("Successfully unmarshaled event: %+v", event)
 	
-	// Check for duplicate processing (idempotency)
 	c.mutex.Lock()
 	if c.processedOrders[event.OrderID] {
 		log.Printf("Duplicate order picked and packed: %s", event.OrderID)
@@ -165,7 +149,6 @@ func (c *ShipperConsumer) processMessage(message *sarama.ConsumerMessage) {
 		Time:    time.Now().Unix(),
 	})
 	
-	// Here you would process the order (e.g., shipping logic)
 	if event.OrderID == "fail" {
 		c.publishKPI(KPIEvent{
 			KPIName: "shipper_error",
@@ -176,7 +159,6 @@ func (c *ShipperConsumer) processMessage(message *sarama.ConsumerMessage) {
 		log.Printf("Failed to process order: %s, sending to DeadLetterQueue", event.OrderID)
 		c.publishToDeadLetterQueue(message.Value)
 	} else {
-		// Publish notification event
 		notification := map[string]interface{}{
 			"order_id":    event.OrderID,
 			"customer_id": event.CustomerID,
@@ -188,13 +170,10 @@ func (c *ShipperConsumer) processMessage(message *sarama.ConsumerMessage) {
 	}
 }
 
-// publishKPI publishes KPI metrics to the KPIs topic
 func (c *ShipperConsumer) publishKPI(kpi KPIEvent) {
-	// TODO: Implement KPI publishing to KPIs topic if needed
 	log.Printf("KPI: %+v", kpi)
 }
 
-// publishToDeadLetterQueue sends failed messages to the DLQ
 func (c *ShipperConsumer) publishToDeadLetterQueue(value []byte) {
 	errEvent := struct {
 		OriginalEvent json.RawMessage `json:"original_event"`
@@ -216,7 +195,6 @@ func (c *ShipperConsumer) publishToDeadLetterQueue(value []byte) {
 	c.publishToTopic("DeadLetterQueue", errBytes)
 }
 
-// publishToTopic publishes a message to the specified Kafka topic
 func (c *ShipperConsumer) publishToTopic(topic string, value []byte) {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true

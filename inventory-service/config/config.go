@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/kelseyhightower/envconfig"
-	// "github.com/prachi/kafka-ecommerce/inventory-service/config"
 )
 
 type Config struct {

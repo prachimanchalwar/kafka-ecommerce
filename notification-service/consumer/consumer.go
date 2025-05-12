@@ -22,7 +22,6 @@ type OrderItem struct {
 	Price     float64 `json:"price"`
 }
 
-// KPIEvent struct for KPI publishing
 type KPIEvent struct {
 	KPIName  string `json:"kpi_name"`
 	Metric   string `json:"metric"`
@@ -30,14 +29,12 @@ type KPIEvent struct {
 	Time     int64  `json:"timestamp"`
 }
 
-// NotificationConsumer handles consuming notification events
 type NotificationConsumer struct {
 	processedOrders map[string]bool
 	mutex           sync.Mutex
 	brokers         []string
 }
 
-// NewNotificationConsumer creates a new notification consumer
 func NewNotificationConsumer(brokers []string) *NotificationConsumer {
 	return &NotificationConsumer{
 		processedOrders: make(map[string]bool),
@@ -45,7 +42,6 @@ func NewNotificationConsumer(brokers []string) *NotificationConsumer {
 	}
 }
 
-// Start begins consuming from the Notification topic
 func (c *NotificationConsumer) Start() error {
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
@@ -71,7 +67,6 @@ func (c *NotificationConsumer) Start() error {
 	return nil
 }
 
-// processMessage handles an individual Kafka message
 func (c *NotificationConsumer) processMessage(message *sarama.ConsumerMessage) {
 	var event OrderEvent
 	if err := json.Unmarshal(message.Value, &event); err != nil {
@@ -86,7 +81,6 @@ func (c *NotificationConsumer) processMessage(message *sarama.ConsumerMessage) {
 		return
 	}
 
-	// Check for duplicate processing (idempotency)
 	c.mutex.Lock()
 	if c.processedOrders[event.OrderID] {
 		log.Printf("Duplicate notification: %s", event.OrderID)
@@ -103,16 +97,12 @@ func (c *NotificationConsumer) processMessage(message *sarama.ConsumerMessage) {
 		Value:   1,
 		Time:    time.Now().Unix(),
 	})
-	// Here you would process the notification (e.g., send email/SMS)
 }
 
-// publishKPI publishes KPI metrics to the KPIs topic
 func (c *NotificationConsumer) publishKPI(kpi KPIEvent) {
-	// TODO: Implement KPI publishing to KPIs topic if needed
 	log.Printf("KPI: %+v", kpi)
 }
 
-// publishToDeadLetterQueue sends failed messages to the DLQ
 func (c *NotificationConsumer) publishToDeadLetterQueue(value []byte) {
 	errEvent := struct {
 		OriginalEvent json.RawMessage `json:"original_event"`
@@ -127,14 +117,13 @@ func (c *NotificationConsumer) publishToDeadLetterQueue(value []byte) {
 	errBytes, err := json.Marshal(errEvent)
 	if err != nil {
 		log.Printf("Failed to marshal error event: %v", err)
-		c.publishToTopic("DeadLetterQueue", value) // Fallback to original message if marshaling fails
+		c.publishToTopic("DeadLetterQueue", value)
 		return
 	}
 
 	c.publishToTopic("DeadLetterQueue", errBytes)
 }
 
-// publishToTopic publishes a message to the specified Kafka topic
 func (c *NotificationConsumer) publishToTopic(topic string, value []byte) {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true

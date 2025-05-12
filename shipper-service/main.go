@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"os"
@@ -12,21 +11,17 @@ import (
 	"github.com/prachi/kafka-ecommerce/shipper-service/consumer"
 )
 
-// These types have been moved to the consumer package
 
 func main() {
 	log.Println("Starting Shipper Service...")
 
-	// Load configuration
 	cfg, err := config.New()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Create shipper consumer
 	shipperConsumer := consumer.NewShipperConsumer(cfg.KafkaBrokers)
 
-	// Start HTTP server for health check
 	go func() {
 		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -38,7 +33,6 @@ func main() {
 		}
 	}()
 
-	// Start consumer in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
 		if err := shipperConsumer.Start(); err != nil {
@@ -46,7 +40,6 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shut down
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 

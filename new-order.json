@@ -1,0 +1,17 @@
+{
+  "order_id": "order-789",
+  "customer_id": "customer-555",
+  "items": [
+    {
+      "product_id": "product-222",
+      "quantity": 3,
+      "price": 19.99
+    },
+    {
+      "product_id": "product-333",
+      "quantity": 1,
+      "price": 99.99
+    }
+  ],
+  "total": 159.96
+}

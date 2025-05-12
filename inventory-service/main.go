@@ -43,7 +43,6 @@ func publishKPI(event KPIEvent, topic string) {
 }
 
 func main() {
-	// Start HTTP server for health check and test order
 	go func() {
 		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -121,20 +120,16 @@ func main() {
 		http.ListenAndServe(":8080", nil)
 	}()
 
-	// Load configuration
 	cfg, err := config.New()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Create and start the consumer
 	invConsumer := consumer.NewInventoryConsumer()
 
-	// Handle graceful shutdown
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start the consumer in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
 		if err := invConsumer.Start(cfg); err != nil {
@@ -142,7 +137,6 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shut down
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 

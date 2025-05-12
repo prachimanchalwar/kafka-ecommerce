@@ -8,14 +8,12 @@ import (
 	"github.com/IBM/sarama"
 )
 
-// OrderItem defines the structure for an item in an order
 type OrderItem struct {
 	ProductID string  `json:"product_id"`
 	Quantity  int     `json:"quantity"`
 	Price     float64 `json:"price"`
 }
 
-// OrderEvent defines the order structure
 type OrderEvent struct {
 	OrderID    string      `json:"order_id"`
 	CustomerID string      `json:"customer_id"`
@@ -25,7 +23,6 @@ type OrderEvent struct {
 
 var kafkaProducer sarama.SyncProducer
 
-// InitializeKafkaProducer initializes the Kafka producer
 func InitializeKafkaProducer(brokers []string) error {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
@@ -41,7 +38,6 @@ func InitializeKafkaProducer(brokers []string) error {
 	return nil
 }
 
-// PublishOrder sends the event to Kafka
 func PublishOrder(orderID, customerID string, items []OrderItem, total float64) error {
 	event := OrderEvent{
 		OrderID:    orderID,
@@ -67,7 +63,6 @@ func PublishOrder(orderID, customerID string, items []OrderItem, total float64) 
 	return nil
 }
 
-// CloseKafkaProducer closes the Kafka producer
 func CloseKafkaProducer() {
 	if kafkaProducer != nil {
 		_ = kafkaProducer.Close()

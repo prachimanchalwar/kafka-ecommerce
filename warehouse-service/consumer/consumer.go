@@ -22,7 +22,6 @@ type OrderItem struct {
 	Price     float64 `json:"price"`
 }
 
-// KPIEvent struct for KPI publishing
 type KPIEvent struct {
 	KPIName  string `json:"kpi_name"`
 	Metric   string `json:"metric"`
@@ -30,14 +29,12 @@ type KPIEvent struct {
 	Time     int64  `json:"timestamp"`
 }
 
-// WarehouseConsumer handles consuming warehouse events
 type WarehouseConsumer struct {
 	processedOrders map[string]bool
 	mutex           sync.Mutex
 	brokers         []string
 }
 
-// NewWarehouseConsumer creates a new warehouse consumer
 func NewWarehouseConsumer(brokers []string) *WarehouseConsumer {
 	return &WarehouseConsumer{
 		processedOrders: make(map[string]bool),
@@ -45,14 +42,12 @@ func NewWarehouseConsumer(brokers []string) *WarehouseConsumer {
 	}
 }
 
-// Start begins consuming from the OrderConfirmed topic
 func (c *WarehouseConsumer) Start() error {
 	log.Println("Starting warehouse service consumer...")
 	
 	config := sarama.NewConfig()
 	config.Consumer.Return.Errors = true
 	
-	// Set client ID for better logging
 	config.ClientID = "warehouse-service"
 	
 	log.Printf("Connecting to Kafka brokers: %v", c.brokers)
@@ -64,7 +59,6 @@ func (c *WarehouseConsumer) Start() error {
 	
 	log.Println("Successfully connected to Kafka")
 	
-	// Consume from the OrderConfirmed topic
 	log.Println("Attempting to consume from OrderConfirmed topic, partition 0")
 	partitionConsumer, err := client.ConsumePartition("OrderConfirmed", 0, sarama.OffsetNewest)
 	if err != nil {
@@ -74,10 +68,8 @@ func (c *WarehouseConsumer) Start() error {
 	
 	log.Println("Successfully created partition consumer, waiting for messages...")
 
-	// Create a channel for errors
 	errors := make(chan error, 1)
 	
-	// Start a goroutine to handle errors
 	go func() {
 		for err := range partitionConsumer.Errors() {
 			log.Printf("Error from partition consumer: %v", err)
@@ -92,7 +84,6 @@ func (c *WarehouseConsumer) Start() error {
 	return nil
 }
 
-// processMessage handles an individual Kafka message
 func (c *WarehouseConsumer) processMessage(message *sarama.ConsumerMessage) {
 	log.Printf("Received message from topic %s, partition %d, offset %d", 
 		message.Topic, message.Partition, message.Offset)
@@ -110,7 +101,6 @@ func (c *WarehouseConsumer) processMessage(message *sarama.ConsumerMessage) {
 		return
 	}
 	
-	// Check for duplicate processing (idempotency)
 	c.mutex.Lock()
 	if c.processedOrders[order.OrderID] {
 		log.Printf("Duplicate order: %s", order.OrderID)
@@ -120,7 +110,6 @@ func (c *WarehouseConsumer) processMessage(message *sarama.ConsumerMessage) {
 	c.processedOrders[order.OrderID] = true
 	c.mutex.Unlock()
 
-	// Simulate processing
 	if order.OrderID == "fail" {
 		c.publishKPI(KPIEvent{
 			KPIName: "warehouse_error",
@@ -139,7 +128,6 @@ func (c *WarehouseConsumer) processMessage(message *sarama.ConsumerMessage) {
 		})
 		log.Printf("Order confirmed for OrderID: %s, publishing notification and OrderPickedAndPacked event", order.OrderID)
 		
-		// Publish notification event
 		notification := map[string]interface{}{
 			"order_id": order.OrderID,
 			"customer_id": order.CustomerID,
@@ -148,8 +136,6 @@ func (c *WarehouseConsumer) processMessage(message *sarama.ConsumerMessage) {
 		notificationBytes, _ := json.Marshal(notification)
 		c.publishToTopic("Notification", notificationBytes)
 		
-		// Publish OrderPickedAndPacked event with proper format
-		// Create a properly formatted OrderEvent to ensure compatibility
 		pickedEvent := OrderEvent{
 			OrderID:    order.OrderID,
 			CustomerID: order.CustomerID,
@@ -157,7 +143,6 @@ func (c *WarehouseConsumer) processMessage(message *sarama.ConsumerMessage) {
 			Total:      order.Total,
 		}
 		
-		// Marshal to ensure proper format
 		pickedEventBytes, err := json.Marshal(pickedEvent)
 		if err != nil {
 			log.Printf("Failed to marshal picked event: %v", err)
@@ -168,17 +153,13 @@ func (c *WarehouseConsumer) processMessage(message *sarama.ConsumerMessage) {
 	}
 }
 
-// publishKPI publishes KPI metrics to the KPIs topic
 func (c *WarehouseConsumer) publishKPI(kpi KPIEvent) {
-	// Log KPI events for monitoring
 	log.Printf("KPI: %+v", kpi)
 	
-	// Optionally publish to a KPIs topic
 	kpiBytes, _ := json.Marshal(kpi)
 	c.publishToTopic("KPIs", kpiBytes)
 }
 
-// publishToDeadLetterQueue sends failed messages to the DLQ
 func (c *WarehouseConsumer) publishToDeadLetterQueue(value []byte) {
 	errEvent := struct {
 		OriginalEvent json.RawMessage `json:"original_event"`
@@ -200,7 +181,6 @@ func (c *WarehouseConsumer) publishToDeadLetterQueue(value []byte) {
 	c.publishToTopic("DeadLetterQueue", errBytes)
 }
 
-// publishToTopic publishes a message to the specified Kafka topic
 func (c *WarehouseConsumer) publishToTopic(topic string, value []byte) {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true

@@ -80,7 +80,6 @@ func (c *InventoryConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, cl
 			continue
 		}
 
-		// Check for duplicate order
 		c.mutex.Lock()
 		if c.processedOrders[event.OrderID] {
 			log.Printf("Duplicate order detected and ignored: %s", event.OrderID)
@@ -93,10 +92,7 @@ func (c *InventoryConsumer) ConsumeClaim(session sarama.ConsumerGroupSession, cl
 
 		log.Printf("Processing new order: %+v", event)
 
-		// Process the order (in a real application, this would check inventory, etc.)
-		// For now, we'll just log and confirm the order
 
-		// Publish to OrderConfirmed topic
 		confirmation := map[string]interface{}{
 			"order_id":  event.OrderID,
 			"status":    "confirmed",
@@ -193,42 +189,34 @@ func (c *InventoryConsumer) Start(cfg *config.Config) error {
 	config.Consumer.Offsets.AutoCommit.Enable = true
 	config.Consumer.Offsets.AutoCommit.Interval = 1 * time.Second
 
-	// Enable idempotent producer
 	config.Producer.Idempotent = true
 	config.Net.MaxOpenRequests = 1
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	config.Producer.Retry.Max = 3
 
-	// Set the consumer group ID
 	config.Consumer.Group.Rebalance.GroupStrategies = []sarama.BalanceStrategy{
 		sarama.NewBalanceStrategyRoundRobin(),
 	}
 
-	// Set up the producer
 	producer, err := sarama.NewSyncProducer(cfg.KafkaBrokers, config)
 	if err != nil {
 		return fmt.Errorf("failed to create producer: %w", err)
 	}
 	c.producer = producer
 
-	// Create a new consumer group
 	group, err := sarama.NewConsumerGroup(cfg.KafkaBrokers, cfg.ConsumerGroupID, config)
 	if err != nil {
 		return fmt.Errorf("failed to create consumer group: %w", err)
 	}
 
-	// Create a context that can be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Set up a channel to handle shutdown signals
 	sigterm := make(chan os.Signal, 1)
 	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
 
-	// Track errors from the consumer
 	errors := make(chan error)
 
-	// Start consuming in a goroutine
 	go func() {
 		log.Printf("Inventory Consumer started, listening to topic: %s", cfg.OrderReceivedTopic)
 		for {
@@ -237,14 +225,12 @@ func (c *InventoryConsumer) Start(cfg *config.Config) error {
 				return
 			}
 
-			// Check if context was cancelled, signaling that the consumer should stop
 			if ctx.Err() != nil {
 				return
 			}
 		}
 	}()
 
-	// Handle errors and signals
 	select {
 	case <-sigterm:
 		log.Println("Initiating graceful shutdown...")
@@ -254,7 +240,6 @@ func (c *InventoryConsumer) Start(cfg *config.Config) error {
 		cancel()
 	}
 
-	// Wait for the consumer to shut down
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -264,12 +249,10 @@ func (c *InventoryConsumer) Start(cfg *config.Config) error {
 		}
 	}()
 
-	// Close the producer
 	if err := c.producer.Close(); err != nil {
 		log.Printf("Error closing producer: %v", err)
 	}
 
-	// Wait for the consumer to finish
 	wg.Wait()
 	log.Println("Consumer successfully closed")
 	return nil

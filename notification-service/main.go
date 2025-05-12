@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"os"
@@ -15,16 +14,13 @@ import (
 func main() {
 	log.Println("Starting Notification Service...")
 
-	// Load configuration
 	cfg, err := config.New()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Create notification consumer
 	notificationConsumer := consumer.NewNotificationConsumer(cfg.KafkaBrokers)
 
-	// Start HTTP server for health check
 	go func() {
 		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -36,7 +32,6 @@ func main() {
 		}
 	}()
 
-	// Start consumer in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
 		if err := notificationConsumer.Start(); err != nil {
@@ -44,7 +39,6 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shut down
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
